@@ -126,7 +126,9 @@ echo "🔑 Step 8: Preparing SSH directory..."
 su - hadoop -c "
   mkdir -p ~/.ssh
   chmod 700 ~/.ssh
-  # 不添加任何公钥！Master 会通过 ssh-copy-id 自动添加
+  touch ~/.ssh/authorized_keys  # ← 关键：创建空文件
+  chmod 600 ~/.ssh/authorized_keys
+  echo '✅ authorized_keys file created'  
 "
 echo "✅ SSH directory prepared"
 
