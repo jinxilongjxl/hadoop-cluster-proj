@@ -142,6 +142,7 @@ echo "🔑 Step 12: Setting up SSH for master..."
 su - hadoop -c "
   echo 'Generating SSH key for Master...'
   ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa -q
+  chmod 700 ~/.ssh
   cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
   chmod 600 ~/.ssh/authorized_keys
   echo '✅ SSH key generated for localhost'
