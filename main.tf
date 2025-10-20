@@ -1,3 +1,8 @@
+# ========== 读取本地 SSH 公钥 ==========
+data "local_file" "ssh_public_key" {
+  filename = "~/.ssh/id_rsa.pub"
+}
+
 # ========== 自定义 VPC ==========
 resource "google_compute_network" "hadoop_vpc" {
   name                    = "hadoop-vpc"
@@ -31,10 +36,10 @@ resource "google_compute_instance" "master" {
   }
 
   metadata = {
-    ssh-keys = "hadoop:${file("~/.ssh/id_rsa.pub")}"
+    ssh-keys = "hadoop:${data.local_file.ssh_public_key.content}"
   }
 
-  metadata_startup_script = data.template_file.master_script.rendered
+  metadata_startup_script = file("${path.module}/scripts/install-hadoop-master.sh")
 
   tags = ["hadoop-cluster"]
 }
@@ -58,7 +63,12 @@ resource "google_compute_instance" "worker" {
     subnetwork = google_compute_subnetwork.hadoop_subnet.id
   }
 
-  metadata_startup_script = data.template_file.worker_script.rendered
+  metadata_startup_script = templatefile(
+    "${path.module}/scripts/install-hadoop-worker.sh.tftpl",
+    {
+      master_public_key = data.local_file.ssh_public_key.content
+    }
+  )
 
   tags = ["hadoop-cluster"]
 }
@@ -100,18 +110,9 @@ resource "google_compute_firewall" "allow_web_ui" {
 
   allow {
     protocol = "tcp"
-    ports    = ["9870", "8088"]  # HDFS, YARN
+    ports    = ["9870", "8088"]
   }
 
   source_ranges = var.allowed_source_ips
   target_tags   = ["hadoop-cluster"]
-}
-
-# ========== 启动脚本模板 ==========
-data "template_file" "master_script" {
-  template = file("${path.module}/scripts/install-hadoop-master.sh")
-}
-
-data "template_file" "worker_script" {
-  template = file("${path.module}/scripts/install-hadoop-worker.sh")
 }

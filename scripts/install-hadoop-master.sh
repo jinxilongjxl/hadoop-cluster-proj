@@ -137,17 +137,14 @@ hadoop-worker-2
 EOF
 echo "✅ Workers file created"
 
-# 9. 配置 SSH 免密登录（主节点到所有节点）
-echo "🔑 Step 12: Setting up SSH passwordless login..."
+# 9. 配置 SSH 免密登录（主节点自身）
+echo "🔑 Step 12: Setting up SSH for master..."
 su - hadoop -c "
   echo 'Generating SSH key...'
   ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa -q
   cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
   chmod 600 ~/.ssh/authorized_keys
   echo '✅ SSH key generated for localhost'
-  
-  # 等待工作节点启动后，自动接受主节点公钥
-  # 工作节点脚本会处理 authorized_keys
 "
 echo "✅ SSH setup completed for master"
 
