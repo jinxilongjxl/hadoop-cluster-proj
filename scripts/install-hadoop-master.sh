@@ -162,7 +162,7 @@ for worker in hadoop-worker-1 hadoop-worker-2; do
   echo "Waiting for \$worker to be ready..."
   # 等待 Worker 的 SSH 服务就绪
   while ! nc -z \$worker 22; do
-    sleep 5
+    sleep 60
   done
   
   echo "Adding key to \$worker..."
