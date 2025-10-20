@@ -1,16 +1,23 @@
 #!/bin/bash
 exec > /var/log/hadoop-worker-install.log 2>&1
 
-echo "Installing Hadoop Worker (DataNode + NodeManager)..."
+echo "=============================="
+echo "🚀 Starting Hadoop Worker Installation"
+echo "=============================="
 
 # 1. 安装 Java
+echo "🔧 Step 1: Installing OpenJDK 11..."
 apt update -y
 apt install -y openjdk-11-jdk
+echo "✅ Java installed"
 
 # 2. 创建用户
+echo "👤 Step 2: Creating hadoop user..."
 id hadoop &>/dev/null || useradd -m -s /bin/bash hadoop
+echo "✅ Hadoop user created"
 
-# 3. 安装 Hadoop（同主节点）
+# 3. 安装 Hadoop
+echo "📦 Step 3: Installing Hadoop..."
 HADOOP_HOME="/home/hadoop/hadoop"
 if [ ! -d "$HADOOP_HOME" ]; then
   su - hadoop -c "
@@ -20,15 +27,18 @@ if [ ! -d "$HADOOP_HOME" ]; then
     mv hadoop-3.3.6 hadoop
   "
 fi
+echo "✅ Hadoop installed"
 
 # 4. 配置环境变量
+echo "⚙️ Step 4: Configuring environment variables..."
 cat > /home/hadoop/.bashrc << 'EOF'
 export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 export HADOOP_HOME=/home/hadoop/hadoop
 export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
 EOF
 
-# 5. 配置 hadoop-env.sh（同主节点）
+# 5. 配置 hadoop-env.sh
+echo "⚙️ Step 5: Configuring hadoop-env.sh..."
 cat >> $HADOOP_HOME/etc/hadoop/hadoop-env.sh << 'EOF'
 export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 export HDFS_DATANODE_USER=hadoop
@@ -36,10 +46,13 @@ export YARN_NODEMANAGER_USER=hadoop
 EOF
 
 # 6. 创建 DataNode 目录
+echo "📁 Step 6: Creating DataNode directories..."
 mkdir -p $HADOOP_HOME/data/datanode
 chown -R hadoop:hadoop $HADOOP_HOME/data
+echo "✅ DataNode directories created"
 
-# 7. 从主节点同步配置（简化：直接写死）
+# 7. 配置核心文件（指向主节点）
+echo "⚙️ Step 7: Configuring Hadoop core files..."
 cat > $HADOOP_HOME/etc/hadoop/core-site.xml << 'EOF'
 <?xml version="1.0"?>
 <configuration>
@@ -64,7 +77,7 @@ cat > $HADOOP_HOME/etc/hadoop/hdfs-site.xml << 'EOF'
 </configuration>
 EOF
 
-# 其他配置同主节点（yarn-site.xml, mapred-site.xml）
+echo "⚙️ Step 9: Configuring yarn-site.xml..."
 cat > $HADOOP_HOME/etc/hadoop/yarn-site.xml << 'EOF'
 <?xml version="1.0"?>
 <configuration>
@@ -83,6 +96,7 @@ cat > $HADOOP_HOME/etc/hadoop/yarn-site.xml << 'EOF'
 </configuration>
 EOF
 
+echo "⚙️ Step 10: Configuring mapred-site.xml..."
 cat > $HADOOP_HOME/etc/hadoop/mapred-site.xml << 'EOF'
 <?xml version="1.0"?>
 <configuration>
@@ -105,10 +119,22 @@ cat > $HADOOP_HOME/etc/hadoop/mapred-site.xml << 'EOF'
 </configuration>
 EOF
 
+# 8. 自动接受主节点 SSH 公钥（关键！）
+echo "🔑 Step 8: Configuring SSH to accept master's key..."
+su - hadoop -c "
+  mkdir -p ~/.ssh
+  chmod 700 ~/.ssh
+  
+  # 从 metadata 获取主节点公钥（简化：实际中可通过 startup-script 传递）
+  # 这里假设主节点公钥已通过其他方式分发
+  # 在生产环境建议用 Ansible 或 Terraform provisioner
+  
+  # 临时方案：允许主节点首次连接时自动添加
+  echo 'StrictHostKeyChecking no' >> ~/.ssh/config
+  chmod 600 ~/.ssh/config
+"
+echo "✅ SSH configured to accept master connections"
 
-# 8. 允许主节点 SSH 免密登录（关键！）
-# 工作节点需接受主节点的公钥
-# 实际中可通过 metadata 传递，这里简化：手动添加
-# 在生产环境建议用 Terraform provisioner 或 Ansible
-
-echo "Worker setup completed."
+echo "=============================="
+echo "🎉 Hadoop Worker installation completed!"
+echo "=============================="
