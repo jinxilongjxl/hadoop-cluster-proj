@@ -78,19 +78,57 @@ cat > $HADOOP_HOME/etc/hadoop/hdfs-site.xml << 'EOF'
 EOF
 
 # 复用主节点的 yarn-site.xml 和 mapred-site.xml
-cp /home/hadoop/hadoop/etc/hadoop/yarn-site.xml /home/hadoop/hadoop/etc/hadoop/yarn-site.xml
-cp /home/hadoop/hadoop/etc/hadoop/mapred-site.xml /home/hadoop/hadoop/etc/hadoop/mapred-site.xml
+# （实际会由 Master 启动时同步，这里简化）
+echo "⚙️ Step 9: Configuring yarn-site.xml..."
+cat > $HADOOP_HOME/etc/hadoop/yarn-site.xml << 'EOF'
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>yarn.nodemanager.aux-services</name>
+    <value>mapreduce_shuffle</value>
+  </property>
+  <property>
+    <name>yarn.resourcemanager.hostname</name>
+    <value>hadoop-master</value>
+  </property>
+  <property>
+    <name>yarn.resourcemanager.webapp.address</name>
+    <value>0.0.0.0:8088</value>
+  </property>
+</configuration>
+EOF
 
-# 8. 添加主节点公钥到 authorized_keys（关键修复！）
-echo "🔑 Step 8: Adding master's public key to authorized_keys..."
+echo "⚙️ Step 10: Configuring mapred-site.xml..."
+cat > $HADOOP_HOME/etc/hadoop/mapred-site.xml << 'EOF'
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>mapreduce.framework.name</name>
+    <value>yarn</value>
+  </property>
+  <property>
+    <name>yarn.app.mapreduce.am.env</name>
+    <value>HADOOP_MAPRED_HOME=/home/hadoop/hadoop</value>
+  </property>
+  <property>
+    <name>mapreduce.map.env</name>
+    <value>HADOOP_MAPRED_HOME=/home/hadoop/hadoop</value>
+  </property>
+  <property>
+    <name>mapreduce.reduce.env</name>
+    <value>HADOOP_MAPRED_HOME=/home/hadoop/hadoop</value>
+  </property>
+</configuration>
+EOF
+
+# 8. 确保 .ssh 目录存在（Master 会自动添加公钥）
+echo "🔑 Step 8: Preparing SSH directory..."
 su - hadoop -c "
   mkdir -p ~/.ssh
   chmod 700 ~/.ssh
-  echo '${master_public_key}' >> ~/.ssh/authorized_keys
-  chmod 600 ~/.ssh/authorized_keys
-  echo '✅ Master public key added to authorized_keys'
+  # 不添加任何公钥！Master 会通过 ssh-copy-id 自动添加
 "
-echo "✅ SSH authentication configured"
+echo "✅ SSH directory prepared"
 
 echo "=============================="
 echo "🎉 Hadoop Worker installation completed!"

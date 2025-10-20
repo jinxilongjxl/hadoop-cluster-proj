@@ -137,22 +137,33 @@ hadoop-worker-2
 EOF
 echo "✅ Workers file created"
 
-# 9. 配置 SSH 免密登录（主节点自身）
+# 9. 配置 SSH 免密登录（Master 自身 + 分发到 Workers）
 echo "🔑 Step 12: Setting up SSH for master..."
 su - hadoop -c "
-  echo 'Generating SSH key...'
+  echo 'Generating SSH key for Master...'
   ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa -q
   cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
   chmod 600 ~/.ssh/authorized_keys
   echo '✅ SSH key generated for localhost'
 "
-echo "✅ SSH setup completed for master"
 
 # 10. 启动 Hadoop
 echo "🚀 Step 13: Scheduling Hadoop startup..."
 cat > /tmp/start-hadoop-master.sh << 'EOF'
 #!/bin/bash
 source /home/hadoop/.bashrc
+
+# 等待 Workers 启动并分发公钥
+echo "Waiting for Workers to start..."
+sleep 60
+
+echo "Distributing Master's public key to Workers..."
+for worker in hadoop-worker-1 hadoop-worker-2; do
+  echo "Adding key to \$worker..."
+  ssh-keyscan \$worker >> ~/.ssh/known_hosts 2>/dev/null
+  ssh-copy-id -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa.pub hadoop@\$worker
+done
+
 echo "Formatting NameNode..."
 hdfs namenode -format -force
 echo "Starting HDFS..."

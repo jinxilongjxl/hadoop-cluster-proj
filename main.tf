@@ -1,6 +1,6 @@
-# ========== 读取本地 SSH 公钥 ==========
-data "local_file" "ssh_public_key" {
-  filename = "~/.ssh/id_rsa.pub"
+# ========== 读取本地 SSH 公钥（用于你登录 Master）==========
+data "local_file" "local_ssh_public_key" {
+  filename = var.local_ssh_public_key_path
 }
 
 # ========== 自定义 VPC ==========
@@ -35,8 +35,9 @@ resource "google_compute_instance" "master" {
     access_config {}
   }
 
+  # 注入你本地的公钥（用于你登录 Master）
   metadata = {
-    ssh-keys = "hadoop:${data.local_file.ssh_public_key.content}"
+    ssh-keys = "hadoop:${data.local_file.local_ssh_public_key.content}"
   }
 
   metadata_startup_script = file("${path.module}/scripts/install-hadoop-master.sh")
@@ -63,12 +64,8 @@ resource "google_compute_instance" "worker" {
     subnetwork = google_compute_subnetwork.hadoop_subnet.id
   }
 
-  metadata_startup_script = templatefile(
-    "${path.module}/scripts/install-hadoop-worker.sh.tftpl",
-    {
-      master_public_key = data.local_file.ssh_public_key.content
-    }
-  )
+  # Worker 不需要你本地的公钥！
+  metadata_startup_script = file("${path.module}/scripts/install-hadoop-worker.sh")
 
   tags = ["hadoop-cluster"]
 }
