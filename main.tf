@@ -151,10 +151,10 @@ resource "null_resource" "distribute_ssh_key" {
 
   provisioner "local-exec" {
     command = <<EOT
-      # 1. 从Master拉取公钥
-      gcloud compute scp hadoop@${google_compute_instance.master.name}:~/.ssh/id_rsa.pub ./master_rsa.pub
+      # 1. 从Master拉取公钥（添加--zone参数）
+      gcloud compute scp hadoop@${google_compute_instance.master.name}:~/.ssh/id_rsa.pub ./master_rsa.pub --zone=${google_compute_instance.master.zone}
 
-      # 2. 分发到所有Worker
+      # 2. 分发到所有Worker（Worker的zone已通过${worker.zone}指定，保持不变）
       %{ for i, worker in google_compute_instance.worker ~}
         gcloud compute ssh hadoop@${worker.name} --zone=${worker.zone} --command "cat >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys" < ./master_rsa.pub
       %{ endfor ~}
