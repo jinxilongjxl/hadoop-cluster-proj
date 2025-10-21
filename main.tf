@@ -65,7 +65,6 @@ resource "google_compute_instance" "worker" {
     access_config {}
   }
 
-  # Worker 不需要你本地的公钥！
   metadata_startup_script = file("${path.module}/scripts/install-hadoop-worker.sh")
 
   tags = ["hadoop-cluster"]
@@ -141,4 +140,27 @@ resource "google_compute_firewall" "allow_external_icmp" {
   source_ranges = ["0.0.0.0/0"]  # 替换为实际IP（如：114.114.114.114/32）
   target_tags   = ["hadoop-cluster"]
   description = "Allow ICMP (ping) from external IP to Hadoop cluster (debug)"
+}
+
+# ========== 自动化分发 SSH 公钥到所有 Worker ==========
+resource "null_resource" "distribute_ssh_key" {
+  depends_on = [
+    google_compute_instance.master,
+    google_compute_instance.worker
+  ]
+
+  provisioner "local-exec" {
+    command = <<EOT
+      # 1. 从Master拉取公钥
+      gcloud compute scp hadoop@${google_compute_instance.master.name}:~/.ssh/id_rsa.pub ./master_rsa.pub
+
+      # 2. 分发到所有Worker
+      %{ for i, worker in google_compute_instance.worker ~}
+        gcloud compute ssh hadoop@${worker.name} --zone=${worker.zone} --command "cat >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys" < ./master_rsa.pub
+      %{ endfor ~}
+
+      # 3. 清理临时文件
+      rm ./master_rsa.pub
+    EOT
+  }
 }

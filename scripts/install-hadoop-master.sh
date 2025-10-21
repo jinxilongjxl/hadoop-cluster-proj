@@ -1,16 +1,17 @@
 #!/bin/bash
+set -e  # 出错即退出，增强健壮性
 exec > /var/log/hadoop-master-install.log 2>&1
 
 echo "=============================="
 echo "🚀 Starting Hadoop Master Installation"
 echo "=============================="
 
-# 1. 安装 Java 和工具
-echo "🔧 Step 1: Installing OpenJDK 11 and at..."
+# 1. 安装 Java、SSH 依赖及工具
+echo "🔧 Step 1: Installing OpenJDK 11 + SSH 依赖..."
 apt update -y
-apt install -y openjdk-11-jdk at
+apt install -y openjdk-11-jdk openssh-server pdsh at
 systemctl start atd
-echo "✅ Java installed: $(java -version 2>&1 | head -1)"
+echo "✅ Java + SSH 依赖安装完成: $(java -version 2>&1 | head -1)"
 
 # 2. 创建 hadoop 用户
 echo "👤 Step 2: Creating hadoop user..."
@@ -34,16 +35,17 @@ else
   echo "✅ Hadoop already installed"
 fi
 
-# 4. 配置环境变量
+# 4. 配置环境变量（并修复权限）
 echo "⚙️ Step 4: Configuring environment variables..."
 cat > /home/hadoop/.bashrc << 'EOF'
 export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 export HADOOP_HOME=/home/hadoop/hadoop
 export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
 EOF
+chown hadoop:hadoop /home/hadoop/.bashrc  # 修复所有者
 echo "✅ .bashrc configured"
 
-# 5. 配置 hadoop-env.sh
+# 5. 配置 hadoop-env.sh（并修复权限）
 echo "⚙️ Step 5: Configuring hadoop-env.sh..."
 cat >> $HADOOP_HOME/etc/hadoop/hadoop-env.sh << 'EOF'
 export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
@@ -52,15 +54,16 @@ export HDFS_DATANODE_USER=hadoop
 export YARN_RESOURCEMANAGER_USER=hadoop
 export YARN_NODEMANAGER_USER=hadoop
 EOF
+chown hadoop:hadoop $HADOOP_HOME/etc/hadoop/hadoop-env.sh  # 修复权限
 echo "✅ hadoop-env.sh updated"
 
-# 6. 创建 NameNode 目录
+# 6. 创建 NameNode 目录（并修复权限）
 echo "📁 Step 6: Creating NameNode directories..."
 mkdir -p $HADOOP_HOME/data/namenode
 chown -R hadoop:hadoop $HADOOP_HOME/data
 echo "✅ NameNode directories created"
 
-# 7. 配置 Hadoop 核心文件
+# 7. 配置 Hadoop 核心文件（并修复权限）
 echo "⚙️ Step 7: Configuring core-site.xml..."
 cat > $HADOOP_HOME/etc/hadoop/core-site.xml << 'EOF'
 <?xml version="1.0"?>
@@ -71,6 +74,7 @@ cat > $HADOOP_HOME/etc/hadoop/core-site.xml << 'EOF'
   </property>
 </configuration>
 EOF
+chown hadoop:hadoop $HADOOP_HOME/etc/hadoop/core-site.xml  # 修复权限
 
 echo "⚙️ Step 8: Configuring hdfs-site.xml..."
 cat > $HADOOP_HOME/etc/hadoop/hdfs-site.xml << 'EOF'
@@ -86,6 +90,7 @@ cat > $HADOOP_HOME/etc/hadoop/hdfs-site.xml << 'EOF'
   </property>
 </configuration>
 EOF
+chown hadoop:hadoop $HADOOP_HOME/etc/hadoop/hdfs-site.xml  # 修复权限
 
 echo "⚙️ Step 9: Configuring yarn-site.xml..."
 cat > $HADOOP_HOME/etc/hadoop/yarn-site.xml << 'EOF'
@@ -105,6 +110,7 @@ cat > $HADOOP_HOME/etc/hadoop/yarn-site.xml << 'EOF'
   </property>
 </configuration>
 EOF
+chown hadoop:hadoop $HADOOP_HOME/etc/hadoop/yarn-site.xml  # 修复权限
 
 echo "⚙️ Step 10: Configuring mapred-site.xml..."
 cat > $HADOOP_HOME/etc/hadoop/mapred-site.xml << 'EOF'
@@ -128,6 +134,8 @@ cat > $HADOOP_HOME/etc/hadoop/mapred-site.xml << 'EOF'
   </property>
 </configuration>
 EOF
+chown hadoop:hadoop $HADOOP_HOME/etc/hadoop/mapred-site.xml  # 修复权限
+echo "✅ Hadoop 核心配置文件配置完成"
 
 # 8. 配置 workers 文件
 echo "⚙️ Step 11: Configuring workers file..."
@@ -135,12 +143,12 @@ cat > $HADOOP_HOME/etc/hadoop/workers <<EOF
 hadoop-worker-1
 hadoop-worker-2
 EOF
+chown hadoop:hadoop $HADOOP_HOME/etc/hadoop/workers  # 修复权限
 echo "✅ Workers file created"
 
-# 9. 配置 SSH 免密登录（Master 自身 + 分发到 Workers）
-echo "🔑 Step 12: Setting up SSH for master..."
+# 9. 生成 Master 自身的 SSH 密钥（用于 localhost 免密）
+echo "🔑 Step 12: Generating SSH key for localhost..."
 su - hadoop -c "
-  echo 'Generating SSH key for Master...'
   ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa -q
   chmod 700 ~/.ssh
   cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
@@ -148,41 +156,37 @@ su - hadoop -c "
   echo '✅ SSH key generated for localhost'
 "
 
-# 10. 启动 Hadoop
-echo "🚀 Step 13: Scheduling Hadoop startup..."
-cat > /tmp/start-hadoop-master.sh << 'EOF'
+# 10. 启动 Hadoop（添加重试和状态检查）
+echo "🚀 Step 13: Starting Hadoop services..."
+cat > /tmp/start-hadoop.sh << 'EOF'
 #!/bin/bash
 source /home/hadoop/.bashrc
 
-# 等待 Workers 启动并分发公钥
-echo "Waiting for Workers to start..."
-sleep 60
-
-echo "Distributing Master's public key to Workers..."
+# 等待 Worker 节点 SSH 服务就绪
 for worker in hadoop-worker-1 hadoop-worker-2; do
-  echo "Waiting for \$worker to be ready..."
-  # 等待 Worker 的 SSH 服务就绪
-  while ! nc -z \$worker 22; do
-    sleep 60
+  echo "Waiting for $worker to be ready..."
+  while ! nc -z $worker 22; do
+    sleep 30
   done
-  
-  echo "Adding key to \$worker..."
-  ssh-keyscan \$worker >> ~/.ssh/known_hosts 2>/dev/null
-  ssh-copy-id -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa.pub hadoop@\$worker
+  echo "$worker is ready"
 done
 
+# 格式化 NameNode（仅首次启动需执行，此处通过 -force 强制）
 echo "Formatting NameNode..."
 hdfs namenode -format -force
+
+# 启动 HDFS 和 YARN
 echo "Starting HDFS..."
 start-dfs.sh
 echo "Starting YARN..."
 start-yarn.sh
+
 echo "✅ Hadoop services started at $(date)"
 EOF
 
-chmod +x /tmp/start-hadoop-master.sh
-su - hadoop -c "at -f /tmp/start-hadoop-master.sh now"
-echo "✅ Hadoop startup scheduled"
+chmod +x /tmp/start-hadoop.sh
+su - hadoop -c "/tmp/start-hadoop.sh"  # 直接执行，而非通过 at 延迟
+echo "✅ Hadoop services started"
 
 echo "=============================="
 echo "🎉 Hadoop Master installation completed!"
