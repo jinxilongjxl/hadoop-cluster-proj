@@ -113,3 +113,31 @@ resource "google_compute_firewall" "allow_web_ui" {
   source_ranges = var.allowed_source_ips
   target_tags   = ["hadoop-cluster"]
 }
+
+# 4. 新增：允许集群内部节点间ping（ICMP协议）
+resource "google_compute_firewall" "allow_internal_icmp" {
+  name    = "hadoop-allow-internal-icmp"
+  network = google_compute_network.hadoop_vpc.id
+
+  allow {
+    protocol = "icmp"
+  }
+
+  source_tags = ["hadoop-cluster"]
+  target_tags = ["hadoop-cluster"]
+  description = "Allow ICMP (ping) between Hadoop cluster nodes"
+}
+
+# 5. 可选：允许外部指定IP ping（调试用）
+resource "google_compute_firewall" "allow_external_icmp" {
+  name    = "hadoop-allow-external-icmp"
+  network = google_compute_network.hadoop_vpc.id
+
+  allow {
+    protocol = "icmp"
+  }
+
+  source_ranges = ["0.0.0.0/0"]  # 替换为实际IP（如：114.114.114.114/32）
+  target_tags   = ["hadoop-cluster"]
+  description = "Allow ICMP (ping) from external IP to Hadoop cluster (debug)"
+}
