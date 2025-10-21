@@ -151,15 +151,47 @@ resource "null_resource" "distribute_ssh_key" {
 
   provisioner "local-exec" {
     command = <<EOT
-      # 1. 从Master拉取公钥（指定zone）
-      gcloud compute scp hadoop@${google_compute_instance.master.name}:~/.ssh/id_rsa.pub ./master_rsa.pub --zone=${google_compute_instance.master.zone}
+      # 1. 等待 Master 节点 SSH 服务就绪（循环检查，超时 5 分钟）
+      MASTER_NAME="${google_compute_instance.master.name}"
+      MASTER_ZONE="${google_compute_instance.master.zone}"
+      MAX_RETRIES=60
+      RETRY_DELAY=5
+      retry_count=0
 
-      # 2. 分发到所有Worker（通过索引访问，无worker变量）
+      echo "Waiting for $MASTER_NAME SSH to be ready..."
+      while ! gcloud compute ssh $MASTER_NAME --zone=$MASTER_ZONE --command "exit 0" >/dev/null 2>&1; do
+        if [ $retry_count -ge $MAX_RETRIES ]; then
+          echo "Error: $MASTER_NAME SSH not ready after $((MAX_RETRIES*RETRY_DELAY)) seconds"
+          exit 1
+        fi
+        retry_count=$((retry_count+1))
+        sleep $RETRY_DELAY
+      done
+      echo "$MASTER_NAME SSH is ready"
+
+      # 2. 从 Master 拉取公钥
+      gcloud compute scp hadoop@$MASTER_NAME:~/.ssh/id_rsa.pub ./master_rsa.pub --zone=$MASTER_ZONE
+
+      # 3. 等待所有 Worker 节点 SSH 就绪，再分发公钥
       %{ for i in range(var.worker_count) ~}
-        gcloud compute ssh hadoop@${google_compute_instance.worker[i].name} --zone=${google_compute_instance.worker[i].zone} --command "cat >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys" < ./master_rsa.pub
+        WORKER_NAME="${google_compute_instance.worker[i].name}"
+        WORKER_ZONE="${google_compute_instance.worker[i].zone}"
+        retry_count=0
+        echo "Waiting for $WORKER_NAME SSH to be ready..."
+        while ! gcloud compute ssh $WORKER_NAME --zone=$WORKER_ZONE --command "exit 0" >/dev/null 2>&1; do
+          if [ $retry_count -ge $MAX_RETRIES ]; then
+            echo "Error: $WORKER_NAME SSH not ready after $((MAX_RETRIES*RETRY_DELAY)) seconds"
+            exit 1
+          fi
+          retry_count=$((retry_count+1))
+          sleep $RETRY_DELAY
+        done
+        echo "$WORKER_NAME SSH is ready"
+        # 分发公钥到该 Worker
+        gcloud compute ssh hadoop@$WORKER_NAME --zone=$WORKER_ZONE --command "cat >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys" < ./master_rsa.pub
       %{ endfor ~}
 
-      # 3. 清理临时文件
+      # 4. 清理临时文件
       rm ./master_rsa.pub
     EOT
   }
