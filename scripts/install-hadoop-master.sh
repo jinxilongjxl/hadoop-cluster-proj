@@ -41,6 +41,7 @@ cat > /home/hadoop/.bashrc << 'EOF'
 export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
 export HADOOP_HOME=/home/hadoop/hadoop
 export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+export PDSH_RCMD_TYPE=ssh
 EOF
 chown hadoop:hadoop /home/hadoop/.bashrc  # 修复所有者
 echo "✅ .bashrc configured"
