@@ -62,6 +62,7 @@ resource "google_compute_instance" "worker" {
   network_interface {
     network    = google_compute_network.hadoop_vpc.id
     subnetwork = google_compute_subnetwork.hadoop_subnet.id
+    access_config {}
   }
 
   # Worker 不需要你本地的公钥！
