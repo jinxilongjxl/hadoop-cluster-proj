@@ -149,7 +149,13 @@ echo "✅ Workers file created"
 # 9. 生成 Master 自身的 SSH 密钥（用于 localhost 免密）
 echo "🔑 Step 12: Generating SSH key for localhost..."
 su - hadoop -c "
-  ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa -q
+  echo 'Generating SSH key pair...'
+  ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa -q  # 无密码生成密钥
+  # 检查公钥是否生成成功
+  if [ ! -f ~/.ssh/id_rsa.pub ]; then
+    echo '❌ Failed to generate SSH public key'
+    exit 1  # 生成失败则脚本退出，避免后续步骤无效
+  fi
   chmod 700 ~/.ssh
   cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
   chmod 600 ~/.ssh/authorized_keys

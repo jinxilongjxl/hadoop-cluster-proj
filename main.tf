@@ -151,17 +151,17 @@ resource "null_resource" "distribute_ssh_key" {
 
   provisioner "local-exec" {
     command = <<EOT
-      # 1. 等待 Master 节点 SSH 服务就绪（循环检查，超时 5 分钟）
+      # 1. 等待 Master 节点 SSH 服务就绪
       MASTER_NAME="${google_compute_instance.master.name}"
       MASTER_ZONE="${google_compute_instance.master.zone}"
       MAX_RETRIES=60
       RETRY_DELAY=5
-      retry_count=0
 
-      echo "Waiting for $MASTER_NAME SSH to be ready..."
+      echo "1. Waiting for $MASTER_NAME SSH to be ready..."
+      retry_count=0
       while ! gcloud compute ssh $MASTER_NAME --zone=$MASTER_ZONE --command "exit 0" >/dev/null 2>&1; do
         if [ $retry_count -ge $MAX_RETRIES ]; then
-          echo "Error: $MASTER_NAME SSH not ready after $((MAX_RETRIES*RETRY_DELAY)) seconds"
+          echo "Error: $MASTER_NAME SSH not ready (timeout)"
           exit 1
         fi
         retry_count=$((retry_count+1))
@@ -169,30 +169,45 @@ resource "null_resource" "distribute_ssh_key" {
       done
       echo "$MASTER_NAME SSH is ready"
 
-      # 2. 从 Master 拉取公钥
+      # 2. 等待 Master 的 hadoop 用户生成 id_rsa.pub（关键：确保密钥存在）
+      echo "2. Waiting for $MASTER_NAME SSH key to be generated..."
+      retry_count=0
+      while ! gcloud compute ssh hadoop@$MASTER_NAME --zone=$MASTER_ZONE --command "test -f ~/.ssh/id_rsa.pub" >/dev/null 2>&1; do
+        if [ $retry_count -ge $MAX_RETRIES ]; then
+          echo "Error: $MASTER_NAME ~/.ssh/id_rsa.pub not found (timeout)"
+          exit 1
+        fi
+        retry_count=$((retry_count+1))
+        sleep $RETRY_DELAY
+      done
+      echo "$MASTER_NAME SSH key is generated"
+
+      # 3. 从 Master 拉取公钥（此时文件已存在）
+      echo "3. Pulling SSH public key from $MASTER_NAME..."
       gcloud compute scp hadoop@$MASTER_NAME:~/.ssh/id_rsa.pub ./master_rsa.pub --zone=$MASTER_ZONE
 
-      # 3. 等待所有 Worker 节点 SSH 就绪，再分发公钥
+      # 4. 分发公钥到所有 Worker（先等 Worker SSH 就绪）
       %{ for i in range(var.worker_count) ~}
         WORKER_NAME="${google_compute_instance.worker[i].name}"
         WORKER_ZONE="${google_compute_instance.worker[i].zone}"
+        echo "4. Waiting for $WORKER_NAME SSH to be ready..."
         retry_count=0
-        echo "Waiting for $WORKER_NAME SSH to be ready..."
         while ! gcloud compute ssh $WORKER_NAME --zone=$WORKER_ZONE --command "exit 0" >/dev/null 2>&1; do
           if [ $retry_count -ge $MAX_RETRIES ]; then
-            echo "Error: $WORKER_NAME SSH not ready after $((MAX_RETRIES*RETRY_DELAY)) seconds"
+            echo "Error: $WORKER_NAME SSH not ready (timeout)"
             exit 1
           fi
           retry_count=$((retry_count+1))
           sleep $RETRY_DELAY
         done
-        echo "$WORKER_NAME SSH is ready"
-        # 分发公钥到该 Worker
+        echo "$WORKER_NAME SSH is ready, distributing key..."
+        # 分发公钥
         gcloud compute ssh hadoop@$WORKER_NAME --zone=$WORKER_ZONE --command "cat >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys" < ./master_rsa.pub
       %{ endfor ~}
 
-      # 4. 清理临时文件
+      # 5. 清理临时文件
       rm ./master_rsa.pub
+      echo "✅ SSH key distribution completed"
     EOT
   }
 }
