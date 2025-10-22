@@ -164,43 +164,87 @@ su - hadoop -c "
 "
 
 # 10. 启动 Hadoop（添加重试和状态检查）
-echo "🚀 Step 13: Starting Hadoop services and waiting for workers to be ready..."
+echo "🚀 Step 13: Starting Hadoop services with restart on failure..."
 cat > /tmp/start-hadoop.sh << 'EOF'
 #!/bin/bash
 source /home/hadoop/.bashrc
 
-# 定义 Worker 列表和服务端口（DataNode: 9866, NodeManager: 8042）
+# 配置参数
 WORKERS=("hadoop-worker-1" "hadoop-worker-2")
-PORTS=("9866" "8042")
-MAX_RETRIES=20  # 最大重试次数（每次间隔 10 秒，共 200 秒超时）
-RETRY_DELAY=10
+PORTS=("9866" "8042")  # DataNode=9866, NodeManager=8042
+MAX_RETRIES=20          # 单次检测最大尝试次数（20次）
+RETRY_DELAY=10          # 每次尝试间隔10秒
+MAX_RESTARTS=1          # 最大重启次数（避免无限循环）
 
-# 1. 先格式化并启动 Hadoop 服务（这一步会触发 Worker 启动 DataNode/NodeManager）
+# 初始启动 HDFS 和 YARN
 echo "Formatting NameNode..."
 hdfs namenode -format -force
 
-echo "Starting HDFS..."
+echo "Starting initial HDFS..."
 start-dfs.sh
 
-echo "Starting YARN..."
+echo "Starting initial YARN..."
 start-yarn.sh
 
-# 2. 启动后，等待 Worker 的服务端口就绪（确认服务真正启动）
-echo "Waiting for all workers' services to be ready..."
-for worker in "${WORKERS[@]}"; do
-  for port in "${PORTS[@]}"; do
-    retry_count=0
-    echo "Checking $worker:$port..."
-    while ! nc -z $worker $port; do
-      if [ $retry_count -ge $MAX_RETRIES ]; then
-        echo "Error: $worker:$port not ready after $((MAX_RETRIES*RETRY_DELAY)) seconds. Service may have failed to start."
-        exit 1  # 超时退出，避免无限等待
-      fi
-      retry_count=$((retry_count+1))
-      sleep $RETRY_DELAY
-    done
-    echo "$worker:$port is ready"
+# 定义端口检测函数（参数：worker, port）
+check_port() {
+  local worker=$1
+  local port=$2
+  local retry_count=0
+  
+  while [ $retry_count -lt $MAX_RETRIES ]; do
+    echo "Checking $worker:$port (attempt $((retry_count+1))/$MAX_RETRIES)..."
+    if nc -z $worker $port; then
+      echo "$worker:$port is ready"
+      return 0  # 成功
+    fi
+    retry_count=$((retry_count+1))
+    sleep $RETRY_DELAY
   done
+  
+  # 达到最大重试次数，返回失败
+  echo "Error: $worker:$port failed after $MAX_RETRIES attempts"
+  return 1
+}
+
+# 主检测逻辑（带重启机制）
+restart_count=0
+all_ready=0
+
+while [ $restart_count -le $MAX_RESTARTS ]; do
+  all_ready=1  # 假设所有端口就绪
+  
+  # 检测所有 Worker 的所有端口
+  for worker in "${WORKERS[@]}"; do
+    for port in "${PORTS[@]}"; do
+      if ! check_port $worker $port; then
+        all_ready=0  # 标记有端口未就绪
+        break  # 跳出当前端口循环
+      fi
+    done
+    if [ $all_ready -eq 0 ]; then
+      break  # 跳出当前 Worker 循环
+    fi
+  done
+  
+  # 所有端口就绪，退出循环
+  if [ $all_ready -eq 1 ]; then
+    echo "✅ All ports are ready"
+    break
+  fi
+  
+  # 未就绪且未达最大重启次数，重启 HDFS 并重试
+  if [ $restart_count -lt $MAX_RESTARTS ]; then
+    restart_count=$((restart_count+1))
+    echo "🔄 Restarting HDFS (restart $restart_count/$MAX_RESTARTS)..."
+    stop-dfs.sh
+    start-dfs.sh
+    echo "Restarted HDFS, rechecking ports..."
+  else
+    # 达最大重启次数仍失败，退出
+    echo "❌ Failed after $MAX_RESTARTS restarts. Aborting."
+    exit 1
+  fi
 done
 
 echo "✅ All Hadoop services (Master + Workers) are fully ready at $(date)"
@@ -208,4 +252,4 @@ EOF
 
 chmod +x /tmp/start-hadoop.sh
 su - hadoop -c "/tmp/start-hadoop.sh"
-echo "✅ Hadoop services started with readiness check"
+echo "✅ Hadoop services started with restart on failure"
