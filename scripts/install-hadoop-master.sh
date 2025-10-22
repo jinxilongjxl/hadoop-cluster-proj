@@ -164,37 +164,36 @@ su - hadoop -c "
 "
 
 # 10. 启动 Hadoop（添加重试和状态检查）
-echo "🚀 Step 13: Starting Hadoop services..."
+echo "🚀 Step 13: Starting Hadoop services with worker readiness check..."
 cat > /tmp/start-hadoop.sh << 'EOF'
 #!/bin/bash
 source /home/hadoop/.bashrc
 
-# 等待 Worker 节点 SSH 服务就绪
-for worker in hadoop-worker-1 hadoop-worker-2; do
-  echo "Waiting for $worker to be ready..."
-  while ! nc -z $worker 22; do
-    sleep 30
+# 定义 Worker 列表和对应服务端口（DataNode: 50010, NodeManager: 8042）
+WORKERS=("hadoop-worker-1" "hadoop-worker-2")
+PORTS=("50010" "8042")
+
+# 检查所有 Worker 的服务端口是否就绪
+for worker in "${WORKERS[@]}"; do
+  for port in "${PORTS[@]}"; do
+    echo "Waiting for $worker:$port to be ready..."
+    while ! nc -z $worker $port; do
+      sleep 30
+    done
+    echo "$worker:$port is ready"
   done
-  echo "$worker is ready"
 done
 
-# 格式化 NameNode（仅首次启动需执行，此处通过 -force 强制）
+# 格式化并启动 Hadoop 服务
 echo "Formatting NameNode..."
 hdfs namenode -format -force
-
-# 启动 HDFS 和 YARN
 echo "Starting HDFS..."
 start-dfs.sh
 echo "Starting YARN..."
 start-yarn.sh
-
 echo "✅ Hadoop services started at $(date)"
 EOF
 
 chmod +x /tmp/start-hadoop.sh
-su - hadoop -c "/tmp/start-hadoop.sh"  # 直接执行，而非通过 at 延迟
-echo "✅ Hadoop services started"
-
-echo "=============================="
-echo "🎉 Hadoop Master installation completed!"
-echo "=============================="
+su - hadoop -c "/tmp/start-hadoop.sh"
+echo "✅ Hadoop services started with readiness check"
