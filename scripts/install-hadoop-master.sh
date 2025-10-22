@@ -239,6 +239,7 @@ while [ $restart_count -le $MAX_RESTARTS ]; do
     echo "🔄 Restarting HDFS (restart $restart_count/$MAX_RESTARTS)..."
     # stop-dfs.sh
     start-dfs.sh
+    start-yarn.sh
     echo "Restarted HDFS, rechecking ports..."
   else
     # 达最大重启次数仍失败，退出
