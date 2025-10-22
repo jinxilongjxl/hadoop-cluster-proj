@@ -169,9 +169,9 @@ cat > /tmp/start-hadoop.sh << 'EOF'
 #!/bin/bash
 source /home/hadoop/.bashrc
 
-# 定义 Worker 列表和服务端口（DataNode: 50010, NodeManager: 8042）
+# 定义 Worker 列表和服务端口（DataNode: 9866, NodeManager: 8042）
 WORKERS=("hadoop-worker-1" "hadoop-worker-2")
-PORTS=("50010" "8042")
+PORTS=("9866" "8042")
 MAX_RETRIES=20  # 最大重试次数（每次间隔 10 秒，共 200 秒超时）
 RETRY_DELAY=10
 
