@@ -237,7 +237,7 @@ while [ $restart_count -le $MAX_RESTARTS ]; do
   if [ $restart_count -lt $MAX_RESTARTS ]; then
     restart_count=$((restart_count+1))
     echo "🔄 Restarting HDFS (restart $restart_count/$MAX_RESTARTS)..."
-    stop-dfs.sh
+    # stop-dfs.sh
     start-dfs.sh
     echo "Restarted HDFS, rechecking ports..."
   else
