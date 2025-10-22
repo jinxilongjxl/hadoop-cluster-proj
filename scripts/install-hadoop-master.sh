@@ -172,7 +172,7 @@ source /home/hadoop/.bashrc
 # 配置参数
 WORKERS=("hadoop-worker-1" "hadoop-worker-2")
 PORTS=("9866" "8042")  # DataNode=9866, NodeManager=8042
-MAX_RETRIES=20          # 单次检测最大尝试次数（20次）
+MAX_RETRIES=5          # 单次检测最大尝试次数（20次）
 RETRY_DELAY=10          # 每次尝试间隔10秒
 MAX_RESTARTS=1          # 最大重启次数（避免无限循环）
 
