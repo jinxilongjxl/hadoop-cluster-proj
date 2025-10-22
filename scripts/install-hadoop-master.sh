@@ -164,34 +164,46 @@ su - hadoop -c "
 "
 
 # 10. 启动 Hadoop（添加重试和状态检查）
-echo "🚀 Step 13: Starting Hadoop services with worker readiness check..."
+echo "🚀 Step 13: Starting Hadoop services and waiting for workers to be ready..."
 cat > /tmp/start-hadoop.sh << 'EOF'
 #!/bin/bash
 source /home/hadoop/.bashrc
 
-# 定义 Worker 列表和对应服务端口（DataNode: 50010, NodeManager: 8042）
+# 定义 Worker 列表和服务端口（DataNode: 50010, NodeManager: 8042）
 WORKERS=("hadoop-worker-1" "hadoop-worker-2")
 PORTS=("50010" "8042")
+MAX_RETRIES=20  # 最大重试次数（每次间隔 10 秒，共 200 秒超时）
+RETRY_DELAY=10
 
-# 检查所有 Worker 的服务端口是否就绪
+# 1. 先格式化并启动 Hadoop 服务（这一步会触发 Worker 启动 DataNode/NodeManager）
+echo "Formatting NameNode..."
+hdfs namenode -format -force
+
+echo "Starting HDFS..."
+start-dfs.sh
+
+echo "Starting YARN..."
+start-yarn.sh
+
+# 2. 启动后，等待 Worker 的服务端口就绪（确认服务真正启动）
+echo "Waiting for all workers' services to be ready..."
 for worker in "${WORKERS[@]}"; do
   for port in "${PORTS[@]}"; do
-    echo "Waiting for $worker:$port to be ready..."
+    retry_count=0
+    echo "Checking $worker:$port..."
     while ! nc -z $worker $port; do
-      sleep 30
+      if [ $retry_count -ge $MAX_RETRIES ]; then
+        echo "Error: $worker:$port not ready after $((MAX_RETRIES*RETRY_DELAY)) seconds. Service may have failed to start."
+        exit 1  # 超时退出，避免无限等待
+      fi
+      retry_count=$((retry_count+1))
+      sleep $RETRY_DELAY
     done
     echo "$worker:$port is ready"
   done
 done
 
-# 格式化并启动 Hadoop 服务
-echo "Formatting NameNode..."
-hdfs namenode -format -force
-echo "Starting HDFS..."
-start-dfs.sh
-echo "Starting YARN..."
-start-yarn.sh
-echo "✅ Hadoop services started at $(date)"
+echo "✅ All Hadoop services (Master + Workers) are fully ready at $(date)"
 EOF
 
 chmod +x /tmp/start-hadoop.sh
